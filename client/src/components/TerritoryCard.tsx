@@ -76,8 +76,19 @@ export function TerritoryCard({
     [allPartyIds, historicalValues, latestValues],
   );
 
+  const legendPartyIds = useMemo(
+    () =>
+      rankedPartyIds.filter((id) =>
+        Math.max(
+          latestValues.get(id)?.votePct ?? 0,
+          historicalValues.get(id)?.votePct ?? 0,
+        ) > 1.5,
+      ),
+    [historicalValues, latestValues, rankedPartyIds],
+  );
+
   const defaultPartyIds = useMemo(() => {
-    const competitive = rankedPartyIds.filter((id) => {
+    const competitive = legendPartyIds.filter((id) => {
       const maxVote = Math.max(
         latestValues.get(id)?.votePct ?? 0,
         historicalValues.get(id)?.votePct ?? 0,
@@ -88,24 +99,24 @@ export function TerritoryCard({
       );
       return maxVote >= 3 || maxSeats > 0;
     });
-    return (competitive.length > 0 ? competitive : rankedPartyIds).slice(0, 5);
-  }, [historicalValues, latestValues, rankedPartyIds]);
+    return (competitive.length > 0 ? competitive : legendPartyIds).slice(0, 5);
+  }, [historicalValues, latestValues, legendPartyIds]);
 
   const [manualPartyIds, setManualPartyIds] = useState<Set<string> | null>(null);
   useEffect(() => setManualPartyIds(null), [showAll, territory.id]);
 
   const visiblePartyIds = useMemo(() => {
     const selected = manualPartyIds
-      ? [...manualPartyIds].filter((id) => allPartyIds.includes(id))
+      ? [...manualPartyIds].filter((id) => legendPartyIds.includes(id))
       : showAll
-        ? [...allPartyIds]
+        ? [...legendPartyIds]
         : [...defaultPartyIds];
     return selected.sort((a, b) => {
       const valueA = latestValues.get(a)?.[metric] ?? historicalValues.get(a)?.[metric] ?? 0;
       const valueB = latestValues.get(b)?.[metric] ?? historicalValues.get(b)?.[metric] ?? 0;
       return valueB - valueA;
     });
-  }, [allPartyIds, defaultPartyIds, historicalValues, latestValues, manualPartyIds, metric, showAll]);
+  }, [defaultPartyIds, historicalValues, latestValues, legendPartyIds, manualPartyIds, metric, showAll]);
 
   const toggleParty = (partyId: string) => {
     const next = new Set(visiblePartyIds);
@@ -151,7 +162,7 @@ export function TerritoryCard({
           <div className="chart-context">
             <span><i className="line-key current-line" />29N</span>
             <span><i className="line-key historical-line" />23J</span>
-            <small>Envío {latest.envio} · {formatTimestamp(latest.timestamp)} · Eje Y adaptado</small>
+            {/* <small>Envío {latest.envio} · {formatTimestamp(latest.timestamp)}</small> */}
           </div>
           <ScrutinyChart
             current={current?.snapshots ?? []}
@@ -161,7 +172,7 @@ export function TerritoryCard({
             metric={metric}
           />
           <div className="party-legend" aria-label="Seleccionar partidos de la gráfica">
-            {rankedPartyIds.map((id) => {
+            {legendPartyIds.map((id) => {
               const party = partyMap.get(id);
               const active = visiblePartyIds.includes(id);
               return (

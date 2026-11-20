@@ -78,12 +78,25 @@ export interface LastSeatContender {
   censusPoints: number;
 }
 
+export interface PenultimateSeatBattle {
+  holderPartyId: string;
+  holderCandidatureCode: string;
+  contender: LastSeatContender;
+}
+
 export interface LastSeatBattle {
   territory: TerritoryInfo;
   scrutinyPct: number;
   holderPartyId: string;
   holderCandidatureCode: string;
   contenders: LastSeatContender[];
+  penultimate?: PenultimateSeatBattle;
+}
+
+export interface LastSeatFrame {
+  envio: number;
+  timestamp: string;
+  battles: LastSeatBattle[];
 }
 
 export interface LastSeatResponse {
@@ -92,6 +105,7 @@ export interface LastSeatResponse {
   timestamp: string | null;
   thresholdCensusPoints: number;
   availableEnvios: Array<{ envio: number; timestamp: string }>;
+  provinceOrder: string[];
   battles: LastSeatBattle[];
 }
 

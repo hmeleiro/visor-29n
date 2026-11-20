@@ -48,6 +48,59 @@ function partyValue(
   return party ? party[metric] : null;
 }
 
+function metricAtOrBefore(
+  snapshots: ElectionSnapshot[],
+  partyId: string,
+  scrutinyPct: number,
+  metric: Metric,
+) {
+  let selected: { snapshot: ElectionSnapshot; value: number } | undefined;
+  for (const snapshot of snapshots) {
+    if (snapshot.scrutinyPct <= 0 || snapshot.scrutinyPct > scrutinyPct) continue;
+    const party = snapshot.parties.find((value) => value.partyId === partyId);
+    if (
+      party &&
+      (!selected || snapshot.scrutinyPct > selected.snapshot.scrutinyPct)
+    ) {
+      selected = { snapshot, value: party[metric] };
+    }
+  }
+  return selected;
+}
+
+function finalMetric(
+  snapshots: ElectionSnapshot[],
+  partyId: string,
+  metric: Metric,
+) {
+  let selected: { snapshot: ElectionSnapshot; value: number } | undefined;
+  for (const snapshot of snapshots) {
+    const party = snapshot.parties.find((value) => value.partyId === partyId);
+    if (
+      party &&
+      (!selected || snapshot.scrutinyPct > selected.snapshot.scrutinyPct)
+    ) {
+      selected = { snapshot, value: party[metric] };
+    }
+  }
+  return selected;
+}
+
+function formatMetric(value: number, metric: Metric) {
+  return metric === "votePct"
+    ? `${formatNumber(value, 2)}%`
+    : `${formatNumber(value)} esc.`;
+}
+
+function signedVariation(value: number, metric: Metric) {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const formatted = formatNumber(
+    Math.abs(value),
+    metric === "votePct" ? 2 : 0,
+  );
+  return `${sign}${formatted} ${metric === "votePct" ? "pp" : "esc."}`;
+}
+
 function axisMinimum(
   range: { min: number; max: number },
   metric: Metric,
@@ -96,7 +149,10 @@ export function ScrutinyChart({
         snapshots.flatMap((snapshot) => {
           if (snapshot.scrutinyPct <= 0) return [];
           const value = partyValue(snapshot, partyId, metric);
-          if (value === null) return [];
+          const party = snapshot.parties.find(
+            (candidate) => candidate.partyId === partyId,
+          );
+          if (value === null || !party) return [];
           return [
             {
               value: [snapshot.scrutinyPct, value],
@@ -116,13 +172,17 @@ export function ScrutinyChart({
           name: `${displayName} · 23J`,
           type: "line",
           data: historyData,
-          showSymbol: false,
-          symbol: "none",
+          showSymbol: true,
+          symbol: "circle",
+          symbolSize: 9,
           smooth: false,
-          step: metric === "seats" ? "end" : false,
-          lineStyle: { width: 1.4, type: "solid", opacity: 0.28 },
-          itemStyle: { color },
-          emphasis: { lineStyle: { width: 2.4, opacity: 0.72 } },
+          step: "end",
+          lineStyle: { color, width: 2.8, type: "solid", opacity: 0.28 },
+          itemStyle: { color, opacity: 0 },
+          emphasis: {
+            lineStyle: { width: 2.8, opacity: 0.72 },
+            itemStyle: { opacity: 1 },
+          },
           animation: false,
           connectNulls: false,
           z: 1,
@@ -135,14 +195,17 @@ export function ScrutinyChart({
           name: `${displayName} · 29N`,
           type: "line",
           data: currentData,
-          showSymbol: currentData.length <= 18,
+          showSymbol: true,
           symbol: "circle",
-          symbolSize: 5,
+          symbolSize: 9,
           smooth: false,
-          step: metric === "seats" ? "end" : false,
-          lineStyle: { width: 2.8, type: "solid", opacity: 1 },
-          itemStyle: { color },
-          emphasis: { lineStyle: { width: 4 } },
+          step: "end",
+          lineStyle: { color, width: 2.8, type: "solid", opacity: 1 },
+          itemStyle: { color, opacity: 0 },
+          // emphasis: {
+          //   lineStyle: { width: 2.8 },
+          //   itemStyle: { opacity: 1 },
+          // },
           animationDuration: 350,
           connectNulls: false,
           z: 3,
@@ -154,30 +217,49 @@ export function ScrutinyChart({
       animation: false,
       aria: { enabled: true },
       color: visiblePartyIds.map((id) => partyMap.get(id)?.color ?? "#64748b"),
+      textStyle: {
+        fontFamily: '"Inter Variable", Inter, system-ui, sans-serif',
+      },
       grid: { top: 18, right: 18, bottom: 54, left: 62 },
       legend: { show: false },
       tooltip: {
-        trigger: "axis",
+        trigger: "item",
         confine: true,
         backgroundColor: "rgba(10, 16, 32, 0.96)",
         borderWidth: 0,
-        textStyle: { color: "#f8fafc", fontSize: 13 },
-        formatter: (rawParams: unknown) => {
-          const params = rawParams as TooltipParam[];
-          if (!params.length) return "";
-          const scrutiny = params[0].data.scrutinyPct;
-          const rows = params
-            .sort((a, b) => b.data.metricValue - a.data.metricValue)
-            .map((param) => {
-              const data = param.data;
-              const label = partyMap.get(data.partyId)?.label ?? data.partyId;
-              const suffix = metric === "votePct" ? "%" : "";
-              const digits = metric === "votePct" ? 2 : 0;
-              return `<div class="chart-tooltip-row"><span><i style="background:${param.color}"></i>${label} · ${data.election}</span><b>${formatNumber(data.metricValue, digits)}${suffix}</b></div>`;
-            })
-            .join("");
-          const source = params.find((param) => param.data.election === "29N") ?? params[0];
-          return `<div class="chart-tooltip"><strong>${formatNumber(scrutiny, 2)}% escrutado</strong><small>Envío ${source.data.envio} · ${formatTimestamp(source.data.timestamp)}</small>${rows}</div>`;
+        textStyle: {
+          color: "#f8fafc",
+          fontFamily: '"Inter Variable", Inter, system-ui, sans-serif',
+          fontSize: 13,
+        },
+        formatter: (rawParam: unknown) => {
+          const param = rawParam as TooltipParam;
+          const { partyId, scrutinyPct } = param.data;
+          const label = partyMap.get(partyId)?.label ?? partyId;
+          const currentFinal = finalMetric(current, partyId, metric);
+          const currentPoint =
+            currentFinal && currentFinal.snapshot.scrutinyPct >= scrutinyPct
+              ? metricAtOrBefore(current, partyId, scrutinyPct, metric)
+              : undefined;
+          const historicalPoint = metricAtOrBefore(
+            historical,
+            partyId,
+            scrutinyPct,
+            metric,
+          );
+          const historicalFinal = finalMetric(historical, partyId, metric);
+          const currentLabel =
+            metric === "votePct" ? "Voto actual" : "Escaños actuales";
+
+          const currentRow = currentPoint
+            ? `<div class="chart-tooltip-row"><span><i style="background:${param.color}"></i>${currentLabel}</span><b>${formatMetric(currentPoint.value, metric)}</b></div><small class="chart-tooltip-detail">Envío ${currentPoint.snapshot.envio} · ${formatTimestamp(currentPoint.snapshot.timestamp)}</small>`
+            : `<div class="chart-tooltip-row"><span><i style="background:${param.color}"></i>${currentLabel}</span><b>Sin alcanzar</b></div>`;
+          const historicalRow =
+            historicalPoint && historicalFinal
+              ? `<div class="chart-tooltip-row"><span>Variación 23J hasta el final</span><b>${signedVariation(historicalFinal.value - historicalPoint.value, metric)}</b></div><small class="chart-tooltip-detail">23J: ${formatMetric(historicalPoint.value, metric)} → ${formatMetric(historicalFinal.value, metric)}</small>`
+              : `<div class="chart-tooltip-row"><span>Variación 23J</span><b>Sin dato comparable</b></div>`;
+
+          return `<div class="chart-tooltip"><strong class="chart-tooltip-title"><i style="background:${param.color}"></i>${label}</strong><small>${formatNumber(scrutinyPct, 2)}% escrutado</small>${currentRow}${historicalRow}</div>`;
         },
       },
       xAxis: {

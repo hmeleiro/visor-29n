@@ -2,8 +2,9 @@
   color: #182033;
   background: #f1f3f8;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-optical-sizing: auto;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --navy: #0a1020;
@@ -559,7 +560,7 @@ main {
 
 .scrutiny-chart {
   width: 100%;
-  height: 360px;
+  height: 430px;
 }
 
 .party-legend {
@@ -768,7 +769,8 @@ main {
 
 .battle-summary {
   flex: 0 0 auto;
-  min-width: 210px;
+  max-width: 390px;
+  min-width: 320px;
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 10px;
@@ -795,6 +797,7 @@ main {
 .battle-summary small {
   color: #8a93a4;
   font-size: 0.74rem;
+  line-height: 1.35;
 }
 
 .battle-card {
@@ -865,7 +868,41 @@ main {
   opacity: 0.48;
 }
 
+.timeline-actions .playback-button {
+  min-width: 105px;
+  color: #fff;
+  border-color: #29457f;
+  background: #334f91;
+}
+
+.timeline-actions .playback-button:hover:not(:disabled) {
+  color: #fff;
+  border-color: #1e376e;
+  background: #29457f;
+}
+
+.playback-button i {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 8px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid currentColor;
+  vertical-align: -1px;
+}
+
+.playback-button.playing i {
+  width: 8px;
+  height: 10px;
+  border: 0;
+  border-right: 3px solid currentColor;
+  border-left: 3px solid currentColor;
+  vertical-align: -1px;
+}
+
 .timeline-actions .live-button {
+  width: 124px;
   color: #225d43;
   border-color: #a8d4bf;
   background: #f0faf5;
@@ -927,7 +964,7 @@ main {
 .battle-axis-row,
 .battle-row {
   display: grid;
-  grid-template-columns: 170px minmax(520px, 1fr) 120px;
+  grid-template-columns: 170px minmax(520px, 1fr) 195px;
   gap: 16px;
 }
 
@@ -967,6 +1004,7 @@ main {
 
 .battle-row {
   position: relative;
+  height: 84px;
   align-items: stretch;
   border-bottom: 1px solid #e9ecf1;
 }
@@ -1037,11 +1075,20 @@ main {
 }
 
 .battle-holder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+  padding: 8px 5px;
+  text-align: center;
+  background: #f7f8fa;
+}
+
+.battle-holder-main {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: #f7f8fa;
 }
 
 .battle-holder i {
@@ -1052,6 +1099,16 @@ main {
 
 .battle-holder strong {
   font-size: 0.94rem;
+}
+
+.battle-penultimate {
+  color: #68748a;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.battle-penultimate span {
+  font-weight: 650;
 }
 
 .battle-loading {
@@ -1113,6 +1170,23 @@ main {
   font-size: 12px;
 }
 
+.chart-tooltip-title {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+}
+
+.chart-tooltip-title i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.chart-tooltip > .chart-tooltip-detail {
+  margin: 0 0 6px;
+  font-size: 11px;
+}
+
 .chart-tooltip-row {
   display: flex;
   justify-content: space-between;
@@ -1143,7 +1217,7 @@ footer {
 
 @media (min-width: 1280px) {
   .territory-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: start;
   }
 }
@@ -1213,6 +1287,7 @@ footer {
 
   .battle-summary {
     width: 100%;
+    min-width: 0;
   }
 
   .battle-meta {

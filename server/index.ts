@@ -9,13 +9,14 @@ import Fastify, {
 } from "fastify";
 import { loadConfig, type AppConfig } from "./config.js";
 import { HistoryStore } from "./history-store.js";
-import { buildPartyCatalog } from "./normalize.js";
+import { buildPartyCatalog, sortLastSeatBattles } from "./normalize.js";
 import { EnvioPoller } from "./poller.js";
 import { ResultsRepository } from "./repository.js";
 import { parseAfter, parseTerritories, RequestError } from "./validation.js";
 import type {
   EnvioEvent,
   HistoryResponse,
+  LastSeatFrame,
   LastSeatResponse,
   MetaResponse,
   SeriesResponse,
@@ -38,6 +39,24 @@ interface ApiQuery {
   territories?: string;
   after?: string;
   envio?: string;
+}
+
+function parseLastSeatFrameEnvios(raw: unknown): number[] {
+  if (typeof raw !== "string" || raw.length > 135) {
+    throw new RequestError("Indica entre uno y ocho números de envío válidos");
+  }
+
+  const parts = raw.split(",");
+  const envios = parts.map(Number);
+  if (
+    parts.length > 8 ||
+    parts.some((part) => !/^\d+$/.test(part)) ||
+    envios.some((envio) => !Number.isSafeInteger(envio)) ||
+    new Set(envios).size !== envios.length
+  ) {
+    throw new RequestError("Indica entre uno y ocho números de envío distintos y válidos");
+  }
+  return envios;
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -149,6 +168,7 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
 
   app.get<{ Querystring: ApiQuery }>("/api/last-seat", async (request): Promise<LastSeatResponse> => {
     const availableEnvios = await repository.getCompleteProvinceEnvios();
+    const latestEnvio = availableEnvios.at(-1)?.envio ?? null;
     const requestedEnvio =
       request.query.envio === undefined ? undefined : Number(request.query.envio);
     if (
@@ -158,18 +178,42 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
     ) {
       throw new RequestError("El envío solicitado no está disponible o está incompleto");
     }
-    const selected =
-      requestedEnvio ?? availableEnvios.at(-1)?.envio ?? null;
+    const selected = requestedEnvio ?? latestEnvio;
     const selectedMeta = availableEnvios.find((item) => item.envio === selected);
+    const envios = latestEnvio === null ? [] : [latestEnvio];
+    if (selected !== null && selected !== latestEnvio) envios.push(selected);
+    const frames = await repository.getLastSeatFrames(envios, true);
+    const latestBattles = frames.find((frame) => frame.envio === latestEnvio)?.battles ?? [];
+    const provinceOrder = latestBattles.map((battle) => battle.territory.id);
+    const fixedOrder = new Map(
+      provinceOrder.map((id, index) => [id, index]),
+    );
+    const selectedBattles = frames.find((frame) => frame.envio === selected)?.battles ?? [];
     return {
       election: "29N",
       envio: selected,
       timestamp: selectedMeta?.timestamp ?? null,
       thresholdCensusPoints: 4,
       availableEnvios,
-      battles: selected === null ? [] : await repository.getLastSeatBattles(selected),
+      provinceOrder,
+      battles: sortLastSeatBattles(
+        selectedBattles.filter((battle) => battle.contenders.length > 0),
+        fixedOrder,
+      ),
     };
   });
+
+  app.get<{ Querystring: { envios?: string } }>(
+    "/api/last-seat/frames",
+    async (request): Promise<LastSeatFrame[]> => {
+      const envios = parseLastSeatFrameEnvios(request.query.envios);
+      const frames = await repository.getLastSeatFrames(envios);
+      if (frames.length !== envios.length) {
+        throw new RequestError("Algún envío solicitado no está disponible o está incompleto");
+      }
+      return frames;
+    },
+  );
 
   app.get<{ Querystring: ApiQuery }>(
     "/api/history",
@@ -251,7 +295,9 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
     await repository.close();
   });
 
-  await poller.start();
+  // La escucha HTTP no debe esperar a MySQL. Mientras la base de datos esté
+  // inaccesible, /healthz responderá 503 y el sondeo seguirá reintentando.
+  void poller.start();
   return app;
 }
 

@@ -15,6 +15,7 @@ export class EnvioPoller extends EventEmitter {
   private timer: NodeJS.Timeout | null = null;
   private lastAnnounced: number | null = null;
   private polling = false;
+  private running = false;
 
   constructor(reader: LatestStateReader, intervalMs: number) {
     super();
@@ -23,13 +24,16 @@ export class EnvioPoller extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    if (this.timer) return;
+    if (this.running) return;
+    this.running = true;
     await this.poll(true);
+    if (!this.running) return;
     this.timer = setInterval(() => void this.poll(false), this.intervalMs);
     this.timer.unref();
   }
 
   stop(): void {
+    this.running = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }

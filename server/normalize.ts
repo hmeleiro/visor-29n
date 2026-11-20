@@ -35,6 +35,7 @@ export function buildLastSeatBattles(
   candidates: CandidateMap,
   thresholdCensusPoints = 4,
   maximumContenders = 3,
+  includeOutsideThreshold = false,
 ): LastSeatBattle[] {
   const battles: LastSeatBattle[] = [];
 
@@ -57,6 +58,39 @@ export function buildLastSeatBattles(
     const holderSeats = numeric(row[`diputados_${holderSlot}`]);
     if (holderVotes <= 0 || holderSeats <= 0) continue;
     const lastSeatQuotient = holderVotes / holderSeats;
+
+    // Reconstruct the awarded D'Hondt quotients to identify the seat just
+    // before the last one. This lets the UI show the second contest (for
+    // example, the last-seat holder trying to take the penultimate seat).
+    const awardedSeats: Array<{
+      quotient: number;
+      partyId: string;
+      candidatureCode: string;
+      seatNumber: number;
+    }> = [];
+    for (let slot = 1; slot <= 80; slot += 1) {
+      const code = String(row[`codigo_candidatura_${slot}`] ?? "").trim();
+      if (!code || code === "0000") continue;
+      const votes = numeric(row[`votos_${slot}`]);
+      const seats = numeric(row[`diputados_${slot}`]);
+      const partyId = candidates.get(code)?.recode || "Sin recodificar";
+      for (let seatNumber = 1; seatNumber <= seats; seatNumber += 1) {
+        awardedSeats.push({
+          quotient: votes / seatNumber,
+          partyId,
+          candidatureCode: code,
+          seatNumber,
+        });
+      }
+    }
+    awardedSeats.sort((a, b) => b.quotient - a.quotient);
+    const lastAward = awardedSeats.find(
+      (seat) =>
+        seat.candidatureCode === holderCode && seat.seatNumber === holderSeats,
+    );
+    const penultimateAward = lastAward
+      ? awardedSeats.filter((seat) => seat !== lastAward).at(-1)
+      : undefined;
 
     const contendersByParty = new Map<string, LastSeatBattle["contenders"][number]>();
     for (let slot = 1; slot <= 80; slot += 1) {
@@ -90,19 +124,64 @@ export function buildLastSeatBattles(
     const contenders = [...contendersByParty.values()]
       .sort((a, b) => a.censusPoints - b.censusPoints)
       .slice(0, maximumContenders);
-    if (contenders.length === 0) continue;
+    if (contenders.length === 0 && !includeOutsideThreshold) continue;
 
-    battles.push({
+    let penultimateContender: LastSeatBattle["penultimate"];
+    const holderPartyId = candidates.get(holderCode)?.recode || "Sin recodificar";
+    if (penultimateAward && penultimateAward.partyId !== holderPartyId) {
+      // Esta segunda distancia responde a una pregunta concreta: cuánto le
+      // falta al partido que ya posee el último escaño para ganar otro y
+      // alcanzar el penúltimo. No se sustituye por un tercer partido más cercano.
+      const votesNeeded = Math.max(
+        0,
+        Math.ceil(penultimateAward.quotient * (holderSeats + 1) - holderVotes),
+      );
+      const censusPoints = (100 * votesNeeded) / census;
+      if (
+        Number.isFinite(censusPoints) &&
+        censusPoints <= thresholdCensusPoints
+      ) {
+        penultimateContender = {
+          holderPartyId: penultimateAward.partyId,
+          holderCandidatureCode: penultimateAward.candidatureCode,
+          contender: {
+            partyId: holderPartyId,
+            candidatureCode: holderCode,
+            votesNeeded,
+            censusPoints,
+          },
+        };
+      }
+    }
+
+    const battle: LastSeatBattle = {
       territory: territoryFromRow(row),
       scrutinyPct: numeric(row.censo_escrutado_pct),
-      holderPartyId: candidates.get(holderCode)?.recode || "Sin recodificar",
+      holderPartyId,
       holderCandidatureCode: holderCode,
       contenders,
-    });
+    };
+    if (penultimateContender) battle.penultimate = penultimateContender;
+    battles.push(battle);
   }
 
-  return battles.sort((a, b) => {
-    const distance = a.contenders[0].censusPoints - b.contenders[0].censusPoints;
+  return sortLastSeatBattles(battles);
+}
+
+export function sortLastSeatBattles(
+  battles: LastSeatBattle[],
+  referenceOrder?: ReadonlyMap<string, number>,
+): LastSeatBattle[] {
+  return [...battles].sort((a, b) => {
+    if (referenceOrder) {
+      const aOrder = referenceOrder.get(a.territory.id) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = referenceOrder.get(b.territory.id) ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+    }
+
+    const aDistance = a.contenders[0]?.censusPoints ?? Number.POSITIVE_INFINITY;
+    const bDistance = b.contenders[0]?.censusPoints ?? Number.POSITIVE_INFINITY;
+    const distance = aDistance - bDistance;
     return distance || a.territory.name.localeCompare(b.territory.name, "es");
   });
 }

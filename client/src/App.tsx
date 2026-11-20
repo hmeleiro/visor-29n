@@ -16,11 +16,24 @@ import { formatTimestamp } from "./format.js";
 
 type ConnectionState = "connecting" | "live" | "retrying";
 
-function selectedFromUrl(allowed: ReadonlySet<string>): string[] {
+function selectedFromUrl(
+  allowed: ReadonlySet<string>,
+  defaults: string[],
+): string[] {
   const raw = new URLSearchParams(window.location.search).get("territorios");
-  if (!raw) return ["ES"];
+  if (!raw) return defaults;
   const ids = [...new Set(raw.split(","))].filter((id) => allowed.has(id));
-  return ids.length > 0 ? ids.slice(0, 6) : ["ES"];
+  return ids.length > 0 ? ids.slice(0, 6) : defaults;
+}
+
+function defaultTerritories(
+  allowed: ReadonlySet<string>,
+  lastSeat: LastSeatResponse | null,
+): string[] {
+  const closestProvinces = (lastSeat?.provinceOrder ?? [])
+    .filter((id) => id !== "ES" && allowed.has(id))
+    .slice(0, 2);
+  return [...new Set(["ES", ...closestProvinces])].filter((id) => allowed.has(id));
 }
 
 function mergeSeries(
@@ -54,58 +67,34 @@ function connectionLabel(state: ConnectionState): string {
 
 export function App() {
   const [meta, setMeta] = useState<MetaResponse | null>(null);
+  const [initialLastSeat, setInitialLastSeat] = useState<LastSeatResponse | null>(null);
   const [selected, setSelected] = useState<string[]>(["ES"]);
   const [current, setCurrent] = useState<TerritorySeries[]>([]);
   const [historical, setHistorical] = useState<TerritorySeries[]>([]);
-  const [lastSeat, setLastSeat] = useState<LastSeatResponse | null>(null);
   const [metric, setMetric] = useState<Metric>("votePct");
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [lastSeatLoading, setLastSeatLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
 
   const selectedRef = useRef(selected);
   const latestEnvioRef = useRef<number | null>(null);
   const refreshingRef = useRef(false);
-  const lastSeatRef = useRef(lastSeat);
-  const lastSeatRequestRef = useRef<AbortController | null>(null);
   selectedRef.current = selected;
-  lastSeatRef.current = lastSeat;
-
-  const loadLastSeat = useCallback(async (envio?: number) => {
-    lastSeatRequestRef.current?.abort();
-    const controller = new AbortController();
-    lastSeatRequestRef.current = controller;
-    setLastSeatLoading(true);
-    try {
-      const response = await fetchLastSeat(envio, controller.signal);
-      if (!controller.signal.aborted) {
-        setLastSeat(response);
-        setError(null);
-      }
-      return response;
-    } catch (caught) {
-      if (!controller.signal.aborted) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "No se pudo cargar la batalla por el último escaño",
-        );
-      }
-      throw caught;
-    } finally {
-      if (!controller.signal.aborted) setLastSeatLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchMeta(controller.signal)
-      .then((response) => {
+    Promise.all([
+      fetchMeta(controller.signal),
+      fetchLastSeat(undefined, controller.signal).catch(() => null),
+    ])
+      .then(([response, lastSeat]) => {
         setMeta(response);
+        setInitialLastSeat(lastSeat);
         const allowed = new Set(response.territories.map((territory) => territory.id));
-        setSelected(selectedFromUrl(allowed));
+        setSelected(
+          selectedFromUrl(allowed, defaultTerritories(allowed, lastSeat)),
+        );
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -149,26 +138,11 @@ export function App() {
     return () => controller.abort();
   }, [meta?.territories, selected]);
 
-  useEffect(() => {
-    if (!meta) return;
-    void loadLastSeat().catch(() => undefined);
-    return () => lastSeatRequestRef.current?.abort();
-  }, [loadLastSeat, meta?.territories]);
-
   const refreshDelta = useCallback(async () => {
-    if (refreshingRef.current || latestEnvioRef.current === null) return;
+    if (refreshingRef.current) return;
     refreshingRef.current = true;
     try {
-      const timeline = lastSeatRef.current;
-      const timelineLatest = timeline?.availableEnvios.at(-1)?.envio;
-      const selectedHistoricalEnvio =
-        timeline?.envio !== null && timeline?.envio !== timelineLatest
-          ? timeline?.envio
-          : undefined;
-      const [response] = await Promise.all([
-        fetchSeries(selectedRef.current, latestEnvioRef.current),
-        loadLastSeat(selectedHistoricalEnvio ?? undefined),
-      ]);
+      const response = await fetchSeries(selectedRef.current, latestEnvioRef.current ?? undefined);
       setCurrent((previous) => mergeSeries(previous, response.territories));
       latestEnvioRef.current = response.latest.envio;
       setMeta((previous) =>
@@ -184,7 +158,7 @@ export function App() {
     } finally {
       refreshingRef.current = false;
     }
-  }, [loadLastSeat]);
+  }, []);
 
   useEffect(() => {
     if (!meta) return;
@@ -301,7 +275,7 @@ export function App() {
                 onChange={(event) => setShowAll(event.target.checked)}
               />
               <i aria-hidden="true" />
-              <b>{showAll ? "Todos los partidos" : "Partidos relevantes"}</b>
+              <b>{showAll ? "Partidos > 1,5%" : "Partidos relevantes"}</b>
             </label>
           </div>
         </section>
@@ -352,10 +326,9 @@ export function App() {
         </section>
 
         <LastSeatSection
-          data={lastSeat}
+          latest={meta?.latest}
           parties={meta?.parties ?? []}
-          loading={lastSeatLoading}
-          onEnvioChange={(envio) => void loadLastSeat(envio).catch(() => undefined)}
+          initialLive={initialLastSeat}
         />
       </main>
 

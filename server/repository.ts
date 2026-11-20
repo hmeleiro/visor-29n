@@ -8,7 +8,7 @@ import {
   type WideResultRow,
 } from "./normalize.js";
 import type {
-  LastSeatBattle,
+  LastSeatFrame,
   LatestState,
   TerritorySeries,
 } from "../shared/types.js";
@@ -32,9 +32,16 @@ interface EnvioRow extends RowDataPacket {
   timestamp: string;
 }
 
+interface LastSeatRow extends WideResultRow {
+  frame_timestamp: string;
+}
+
 export class ResultsRepository {
   private readonly pool: Pool;
   private readonly expectedRows: number;
+  private readonly lastSeatCache = new Map<number, LastSeatFrame>();
+  private readonly lastSeatPending = new Map<number, Promise<LastSeatFrame | undefined>>();
+  private lastSeatTimestamps = new Map<number, string>();
 
   constructor(config: AppConfig) {
     this.expectedRows = config.expectedTerritoryRows;
@@ -154,18 +161,85 @@ export class ResultsRepository {
     return normalizeWideRows(rows, candidates, onUnknownCode);
   }
 
-  async getLastSeatBattles(throughEnvio: number): Promise<LastSeatBattle[]> {
-    const [rows] = await this.pool.query<WideResultRow[]>(`
-      SELECT *
-      FROM resultados_totales
-      WHERE n_envio = ? AND ccaa_prov = 'PR'
-      ORDER BY codigo_provincia
-    `, [throughEnvio]);
-    const records = await this.getCandidateRecords();
+  async getLastSeatFrames(
+    envios: number[],
+    includeOutsideThreshold = false,
+  ): Promise<LastSeatFrame[]> {
+    const missing = envios.filter(
+      (envio) => !this.lastSeatCache.has(envio) && !this.lastSeatPending.has(envio),
+    );
+    if (missing.length > 0) {
+      const batch = this.loadLastSeatFrames(missing);
+      for (const envio of missing) {
+        const frame = batch
+          .then((frames) => frames.get(envio))
+          .finally(() => this.lastSeatPending.delete(envio));
+        this.lastSeatPending.set(envio, frame);
+      }
+    }
+
+    const frames = await Promise.all(envios.map((envio) => {
+      const cached = this.lastSeatCache.get(envio);
+      if (!cached) return this.lastSeatPending.get(envio);
+      // Move the entry to the end so active timeline frames stay warm.
+      this.lastSeatCache.delete(envio);
+      this.lastSeatCache.set(envio, cached);
+      return cached;
+    }));
+
+    return frames
+      .filter((frame): frame is LastSeatFrame => frame !== undefined)
+      .map((frame) => includeOutsideThreshold
+        ? frame
+        : { ...frame, battles: frame.battles.filter((battle) => battle.contenders.length > 0) });
+  }
+
+  private async loadLastSeatFrames(envios: number[]): Promise<Map<number, LastSeatFrame>> {
+    const [[rows], records] = await Promise.all([
+      this.pool.query<LastSeatRow[]>(`
+        SELECT results.*, complete_envios.frame_timestamp
+        FROM resultados_totales AS results
+        JOIN (
+          SELECT n_envio, MAX(timestamp) AS frame_timestamp
+          FROM resultados_totales
+          WHERE ccaa_prov = 'PR' AND n_envio IN (${envios.map(() => "?").join(", ")})
+          GROUP BY n_envio
+          HAVING COUNT(DISTINCT codigo_provincia) = 52
+        ) AS complete_envios ON complete_envios.n_envio = results.n_envio
+        WHERE results.ccaa_prov = 'PR'
+        ORDER BY results.codigo_provincia
+      `, envios),
+      this.getCandidateRecords(),
+    ]);
     const candidates: CandidateMap = new Map(
       records.map((record) => [record.code, record]),
     );
-    return buildLastSeatBattles(rows, candidates, 4, 3);
+
+    const rowsByEnvio = new Map<number, LastSeatRow[]>();
+    for (const row of rows) {
+      const envio = Number(row.n_envio);
+      const group = rowsByEnvio.get(envio);
+      if (group) group.push(row);
+      else rowsByEnvio.set(envio, [row]);
+    }
+
+    const frames = new Map<number, LastSeatFrame>();
+    for (const [envio, group] of rowsByEnvio) {
+      const frame = {
+        envio,
+        timestamp: String(group[0].frame_timestamp),
+        battles: buildLastSeatBattles(group, candidates, 4, 3, true),
+      };
+      frames.set(envio, frame);
+      const knownTimestamp = this.lastSeatTimestamps.get(envio);
+      if (knownTimestamp !== undefined && knownTimestamp !== frame.timestamp) continue;
+      this.lastSeatCache.set(envio, frame);
+      if (this.lastSeatCache.size > 48) {
+        const oldest = this.lastSeatCache.keys().next().value;
+        if (oldest !== undefined) this.lastSeatCache.delete(oldest);
+      }
+    }
+    return frames;
   }
 
   async getCompleteProvinceEnvios(): Promise<Array<{ envio: number; timestamp: string }>> {
@@ -177,10 +251,17 @@ export class ResultsRepository {
       HAVING COUNT(DISTINCT codigo_provincia) = 52
       ORDER BY n_envio
     `);
-    return rows.map((row) => ({
+    const envios = rows.map((row) => ({
       envio: Number(row.n_envio),
       timestamp: String(row.timestamp),
     }));
+    this.lastSeatTimestamps = new Map(envios.map(({ envio, timestamp }) => [envio, timestamp]));
+    for (const [envio, frame] of this.lastSeatCache) {
+      if (this.lastSeatTimestamps.get(envio) !== frame.timestamp) {
+        this.lastSeatCache.delete(envio);
+      }
+    }
+    return envios;
   }
 }
 

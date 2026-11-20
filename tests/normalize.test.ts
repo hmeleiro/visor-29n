@@ -142,6 +142,49 @@ describe("buildLastSeatBattles", () => {
       { partyId: "FA", candidatureCode: "0008", votesNeeded: 30, censusPoints: 3 },
     ]);
   });
+
+  it("mide la distancia del partido del último escaño al penúltimo", () => {
+    const candidates: CandidateMap = new Map([
+      ["0007", { code: "0007", recode: "PP", color: "#315899", colorPastel: "", colorDark: "" }],
+      ["0001", { code: "0001", recode: "PSOE", color: "#e30613", colorPastel: "", colorDark: "" }],
+      ["0006", { code: "0006", recode: "Vox", color: "#5ac035", colorPastel: "", colorDark: "" }],
+    ]);
+    const row = {
+      n_envio: 12,
+      timestamp: "2611292100",
+      ccaa_prov: "PR",
+      codigo_provincia: "02",
+      provincia: "Albacete",
+      censo: 2000,
+      censo_escrutado_pct: 80,
+      ultimo_codigo_candidatura: "0007",
+      codigo_candidatura_1: "0007",
+      votos_1: 49,
+      votos_pct_1: 10,
+      diputados_1: 1,
+      codigo_candidatura_2: "0001",
+      votos_2: 100,
+      votos_pct_2: 40,
+      diputados_2: 2,
+      codigo_candidatura_3: "0006",
+      votos_3: 49,
+      votos_pct_3: 3,
+      diputados_3: 0,
+    } as unknown as WideResultRow;
+
+    const [battle] = buildLastSeatBattles([row], candidates, 4, 3);
+
+    expect(battle.penultimate).toEqual({
+      holderPartyId: "PSOE",
+      holderCandidatureCode: "0001",
+      contender: {
+        partyId: "PP",
+        candidatureCode: "0007",
+        votesNeeded: 51,
+        censusPoints: 2.55,
+      },
+    });
+  });
 });
 
 describe("buildPartyCatalog", () => {

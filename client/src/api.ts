@@ -1,5 +1,6 @@
 import type {
   HistoryResponse,
+  LastSeatFrame,
   LastSeatResponse,
   MetaResponse,
   SeriesResponse,
@@ -60,5 +61,15 @@ export function fetchLastSeat(
 ): Promise<LastSeatResponse> {
   const query = envio === undefined ? "" : `?envio=${envio}`;
   return fetchJson<LastSeatResponse>(`/api/last-seat${query}`, signal);
+}
+
+export function fetchLastSeatFrames(
+  envios: number[],
+  signal: AbortSignal,
+): Promise<LastSeatFrame[]> {
+  return fetchJson<LastSeatFrame[]>(
+    `/api/last-seat/frames?envios=${envios.join(",")}`,
+    signal,
+  );
 }
 

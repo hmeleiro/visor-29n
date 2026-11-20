@@ -1,8 +1,15 @@
+const numberFormats = new Map<number, Intl.NumberFormat>();
+
 export function formatNumber(value: number, digits = 0): string {
-  return new Intl.NumberFormat("es-ES", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(value);
+  let formatter = numberFormats.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("es-ES", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+    numberFormats.set(digits, formatter);
+  }
+  return formatter.format(value);
 }
 
 export function formatTimestamp(value: string | null): string {
