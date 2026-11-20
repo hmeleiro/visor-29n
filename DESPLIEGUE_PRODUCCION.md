@@ -260,19 +260,146 @@ Durante la jornada electoral conviene vigilar además:
 - espacio libre en disco y crecimiento de logs;
 - continuidad de `/api/events` a través del proxy.
 
-## 11. Actualizar una versión
+## 11. Publicar una actualización
 
-Antes de actualizar, conserva la versión anterior del código o una etiqueta de imagen para poder volver atrás. Valida la nueva versión en CI y después, desde el directorio de producción:
+La instalación actual usa estos valores:
+
+- repositorio: `https://github.com/hmeleiro/visor-29n.git`;
+- rama de producción: `main`;
+- servidor: `deploy@217.154.183.47`;
+- directorio: `/opt/visor-29n`;
+- URL pública: `https://29n.spainelectoralproject.com`.
+
+Una actualización normal no requiere modificar `.env`, MySQL, Nginx, el certificado ni Cloudflare. El fichero `.env` del servidor no está versionado y se conserva durante `git pull` y durante la reconstrucción del contenedor.
+
+### 11.1. Validar, confirmar y subir desde el equipo local
+
+Ejecuta las comprobaciones con Node.js 22:
+
+```powershell
+npm run typecheck
+npm test
+npm run build
+```
+
+Revisa qué se va a publicar, añade los cambios y crea un commit descriptivo:
+
+```powershell
+git status --short
+git add -A
+git commit -m "TIPO: descripción breve del cambio"
+git push origin main
+```
+
+Sustituye `TIPO` por `feat`, `fix`, `perf` o `docs` según corresponda. Para una actualización exclusivamente documental, por ejemplo:
+
+```powershell
+git commit -m "docs: documenta la actualización en producción"
+```
+
+Comprueba el identificador de la versión que acabas de subir:
+
+```powershell
+git rev-parse --short HEAD
+```
+
+No subas `.env`; debe seguir ignorado y nunca formar parte del commit.
+
+### 11.2. Descargar la versión en el servidor
+
+Conéctate y entra en el directorio del proyecto:
 
 ```bash
+ssh deploy@217.154.183.47
+cd /opt/visor-29n
+```
+
+Antes del `pull`, verifica que no haya cambios locales inesperados y anota el commit actual para poder volver a él:
+
+```bash
+git status --short
+git rev-parse --short HEAD
+```
+
+Si `git status --short` muestra cambios, no continúes hasta identificar su origen. El `.env` no debería aparecer porque está ignorado. Con el árbol limpio:
+
+```bash
+git fetch --prune origin
+git pull --ff-only origin main
+git rev-parse --short HEAD
+```
+
+El identificador final debe coincidir con el obtenido en el equipo local.
+
+### 11.3. Reconstruir y sustituir el contenedor
+
+Esta versión cambia el frontend, el servidor y `package-lock.json`, por lo que hay que reconstruir la imagen; un simple `docker compose restart` seguiría ejecutando el código anterior.
+
+Primero valida la configuración y construye la imagen mientras el contenedor actual sigue atendiendo peticiones:
+
+```bash
+docker compose config --quiet
 docker compose build --pull visor-escrutinio
+```
+
+Si el build termina correctamente, sustituye solo el servicio del visor:
+
+```bash
 docker compose up -d --no-deps --force-recreate visor-escrutinio
 docker compose ps
+```
+
+La sustitución de la única réplica puede producir una interrupción de pocos segundos. No es necesario reiniciar Nginx ni MySQL.
+
+### 11.4. Verificar la actualización
+
+Comprueba primero el contenedor y la conexión a MySQL desde el propio servidor:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:3000/healthz
+docker compose ps
+docker compose logs --tail=100 visor-escrutinio
+```
+
+La respuesta de salud debe ser `{"status":"ok"}` y el servicio debe pasar a `healthy`. Después comprueba la ruta completa a través de Nginx y Cloudflare:
+
+```bash
+curl --fail --silent --show-error https://29n.spainelectoralproject.com/healthz
+```
+
+Finalmente, abre el dashboard en una ventana nueva o haz una recarga forzada y verifica:
+
+1. Se cargan España y las dos provincias con la batalla más ajustada.
+2. Las fichas de evolución usan Inter, líneas escalonadas y tooltips de voto o escaños.
+3. Las filas de la batalla tienen una altura constante.
+4. Las teclas izquierda y derecha cambian de envío sin enfocar el gráfico.
+5. `Reproducir` comienza en el primer envío, avanza hasta el último y permite pausar.
+6. El deslizador sigue respondiendo con fluidez y `Volver al directo` recupera el último envío.
+7. La conexión SSE continúa activa y un envío nuevo aparece sin recargar la página.
+
+Los recursos del frontend llevan nombres con hash, por lo que no es necesario purgar normalmente la caché de Cloudflare. Si una pestaña abierta conserva la interfaz anterior, haz una recarga forzada antes de purgar cachés.
+
+### 11.5. Rollback
+
+La aplicación es de solo lectura y no ejecuta migraciones, por lo que se puede volver al commit anterior sin revertir la base de datos. Usa el identificador que anotaste antes del `git pull`:
+
+```bash
+cd /opt/visor-29n
+git switch --detach COMMIT_ANTERIOR
+docker compose build visor-escrutinio
+docker compose up -d --no-deps --force-recreate visor-escrutinio
 curl --fail --silent --show-error http://127.0.0.1:3000/healthz
 docker compose logs --tail=100 visor-escrutinio
 ```
 
-Este procedimiento produce una interrupción breve mientras se sustituye el único contenedor. Hazlo antes de la ventana crítica. Como la aplicación no modifica la base de datos ni aplica migraciones, el rollback no tiene dependencias de esquema: si restauras el código anterior, reconstruye la imagen y recrea el servicio; si conservas y vuelves a etiquetar la imagen anterior, recréalo con `docker compose up -d --no-deps --no-build --force-recreate visor-escrutinio`.
+Cuando quieras volver a desplegar la rama principal:
+
+```bash
+git switch main
+git pull --ff-only origin main
+docker compose build visor-escrutinio
+docker compose up -d --no-deps --force-recreate visor-escrutinio
+```
 
 No ejecutes `docker compose down -v`: el proyecto no necesita borrar volúmenes y esa práctica puede eliminar datos de otros servicios si la composición se amplía en el futuro.
 

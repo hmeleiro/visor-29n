@@ -126,9 +126,8 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
           <p className="section-kicker">Reparto provincial</p>
           <h2>La batalla por el último escaño</h2>
           <p>
-            Hasta tres aspirantes situados a menos de cuatro puntos sobre el
-            censo. Las provincias se ordenan por la amenaza más cercana del
-            último envío y mantienen ese orden al retroceder en la línea temporal.
+            Se muestran hasta tres aspirantes situados a menos de 4 puntos sobre el
+            censo en las provincias donde existe al menos un aspirante a menos de 2,5 puntos.
           </p>
         </div>
         <div className="battle-summary">

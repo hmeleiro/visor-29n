@@ -333,8 +333,8 @@ export function App() {
       </main>
 
       <footer>
-        <span>Fuente 29N: resultados_totales · Fuente 23J: escrutinio acumulado</span>
-        <span>FA se compara con Sumar (23J)</span>
+        <span>Fuente: Ministerio del Interior</span>
+        <span>Spain Electoral Project</span>
       </footer>
     </div>
   );
