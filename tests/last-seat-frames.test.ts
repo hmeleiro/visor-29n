@@ -66,7 +66,7 @@ beforeEach(() => {
   query.mockImplementation(async (sql: string, envios: number[] = []) => {
     if (sql.includes("complete_envios")) {
       const rows = envios.flatMap((envio) => {
-        if (envio === 1) return [provinceRow(1, "01", 80), provinceRow(1, "02", 98)];
+        if (envio === 1) return [provinceRow(1, "01", 20), provinceRow(1, "02", 98)];
         if (envio === 2) return [provinceRow(2, "01", 99), provinceRow(2, "02", 92)]
           .map((row) => ({ ...row, frame_timestamp: latestTimestamp }));
         return [];
@@ -111,12 +111,13 @@ describe("fotogramas de la batalla por el último escaño", () => {
     expect(frames.map(({ envio }) => envio)).toEqual([2, 1]);
     expect(frames[1].timestamp).toBe("timestamp-1");
     expect(frames[1].battles.map(({ territory }) => territory.id)).toEqual(["02", "01"]);
+    expect(frames[1].battles[1].contenders).toEqual([]);
 
     const historical = await fetch(`${address}/api/last-seat?envio=1`, { headers });
     expect(historical.status).toBe(200);
     const response: LastSeatResponse = await historical.json();
     expect(response.provinceOrder).toEqual(["01", "02"]);
-    expect(response.battles.map(({ territory }) => territory.id)).toEqual(["01", "02"]);
+    expect(response.battles.map(({ territory }) => territory.id)).toEqual(["02"]);
     expect(batchQueries().map(([, envios]) => envios)).toEqual([[2, 1]]);
   });
 

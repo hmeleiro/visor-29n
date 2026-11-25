@@ -87,6 +87,7 @@ export interface PenultimateSeatBattle {
 export interface LastSeatBattle {
   territory: TerritoryInfo;
   scrutinyPct: number;
+  dataAvailable?: boolean;
   holderPartyId: string;
   holderCandidatureCode: string;
   contenders: LastSeatContender[];

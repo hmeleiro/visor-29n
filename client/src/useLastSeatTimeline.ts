@@ -29,6 +29,46 @@ function storeFrames(cache: Map<string, LastSeatFrame>, frames: LastSeatFrame[])
   return updated;
 }
 
+export function selectTimelineBattles(
+  displayedBattles: LastSeatFrame["battles"],
+  latestBattles: LastSeatFrame["battles"],
+  provinceOrder: string[] = [],
+) {
+  const rank = new Map(provinceOrder.map((id, index) => [id, index]));
+  const displayedByProvince = new Map(
+    displayedBattles.map((battle) => [battle.territory.id, battle]),
+  );
+
+  return latestBattles
+    .filter((battle) =>
+      battle.contenders.some(
+        (contender) => contender.censusPoints < provinceBattleThreshold,
+      ),
+    )
+    .flatMap((latestBattle) => {
+      const displayedBattle = displayedByProvince.get(latestBattle.territory.id);
+      if (!displayedBattle) {
+        return [{
+          territory: latestBattle.territory,
+          scrutinyPct: 0,
+          dataAvailable: false,
+          holderPartyId: "",
+          holderCandidatureCode: "",
+          contenders: [],
+        }];
+      }
+      return displayedBattle.contenders.some(
+        (contender) => contender.censusPoints < provinceBattleThreshold,
+      )
+        ? [displayedBattle]
+        : [];
+    })
+    .sort((a, b) =>
+      (rank.get(a.territory.id) ?? rank.size) -
+      (rank.get(b.territory.id) ?? rank.size),
+    );
+}
+
 export function useLastSeatTimeline(
   latest: LatestState | undefined,
   initialLive?: LastSeatResponse | null,
@@ -152,20 +192,12 @@ export function useLastSeatTimeline(
   const provinceOrder = live?.provinceOrder;
   const battles = useMemo(() => {
     if (!displayed) return [];
-    const rank = new Map(
-      (provinceOrder ?? []).map((id, index) => [id, index]),
+    return selectTimelineBattles(
+      displayed.battles,
+      live?.battles ?? [],
+      provinceOrder,
     );
-    return displayed.battles
-      .filter((battle) =>
-        battle.contenders.some(
-          (contender) => contender.censusPoints < provinceBattleThreshold,
-        ),
-      )
-      .sort((a, b) =>
-        (rank.get(a.territory.id) ?? rank.size) -
-        (rank.get(b.territory.id) ?? rank.size),
-      );
-  }, [displayed, provinceOrder]);
+  }, [displayed, live?.battles, provinceOrder]);
 
   function selectEnvio(envio?: number) {
     setSelection(envio === undefined || envio === live?.envio ? null : envio);

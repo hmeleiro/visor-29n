@@ -800,6 +800,34 @@ main {
   line-height: 1.35;
 }
 
+.battle-summary .battle-scrutiny-toggle {
+  min-height: 0;
+  grid-column: 1 / -1;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid #e2e6ed;
+}
+
+.battle-summary .battle-scrutiny-toggle i {
+  width: 36px;
+  height: 20px;
+}
+
+.battle-summary .battle-scrutiny-toggle i::after {
+  width: 14px;
+  height: 14px;
+}
+
+.battle-summary .battle-scrutiny-toggle input:checked + i::after {
+  transform: translateX(16px);
+}
+
+.battle-summary .battle-scrutiny-toggle b {
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
 .battle-card {
   overflow: hidden;
   border: 1px solid #dfe3eb;

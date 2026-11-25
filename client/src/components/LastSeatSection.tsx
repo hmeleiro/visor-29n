@@ -17,6 +17,17 @@ interface Props {
   initialLive?: LastSeatResponse | null;
 }
 
+export const highScrutinyThreshold = 98;
+
+export function filterBattlesByScrutiny(
+  battles: LastSeatBattle[],
+  showHighScrutiny: boolean,
+) {
+  return showHighScrutiny
+    ? battles
+    : battles.filter((battle) => battle.scrutinyPct <= highScrutinyThreshold);
+}
+
 export function LastSeatSection({ latest, parties, initialLive }: Props) {
   const {
     live, liveError, availableEnvios, liveIndex, selectedIndex,
@@ -27,6 +38,7 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
     [parties],
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showHighScrutiny, setShowHighScrutiny] = useState(false);
   const isLive = availableEnvios.length > 0 && selectedIndex === liveIndex;
 
   function selectManually(envio?: number) {
@@ -108,10 +120,15 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
     setIsPlaying(true);
   }
 
-  const multiPartyBattles = battles.filter(
+  const visibleBattles = useMemo(
+    () => filterBattlesByScrutiny(battles, showHighScrutiny),
+    [battles, showHighScrutiny],
+  );
+  const hiddenHighScrutiny = battles.length - visibleBattles.length;
+  const multiPartyBattles = visibleBattles.filter(
     (battle) => battle.contenders.length >= 2,
   ).length;
-  const penultimateBattles = battles.filter(
+  const penultimateBattles = visibleBattles.filter(
     (battle) => battle.penultimate,
   ).length;
 
@@ -131,13 +148,22 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
           </p>
         </div>
         <div className="battle-summary">
-          <strong>{battles.length}</strong>
+          <strong>{visibleBattles.length}</strong>
           <span>provincias con aspirantes</span>
           <small>
             A menos de {formatNumber(provinceBattleThreshold, 1)} pp del último
             escaño · {multiPartyBattles} con varios aspirantes · {penultimateBattles + " "}
             con disputa del penúltimo
           </small>
+          <label className="switch-row battle-scrutiny-toggle">
+            <input
+              type="checkbox"
+              checked={showHighScrutiny}
+              onChange={(event) => setShowHighScrutiny(event.target.checked)}
+            />
+            <i aria-hidden="true" />
+            <b>Mostrar provincias con más del 98% escrutado</b>
+          </label>
         </div>
       </header>
 
@@ -221,7 +247,8 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
             <span>Distancia en puntos sobre el censo</span>
           </div>
           <BattleTable
-            battles={battles}
+            battles={visibleBattles}
+            hiddenHighScrutiny={hiddenHighScrutiny}
             partyMap={partyMap}
             threshold={live?.thresholdCensusPoints ?? 4}
           />
@@ -241,10 +268,12 @@ export function LastSeatSection({ latest, parties, initialLive }: Props) {
 
 const BattleTable = memo(function BattleTable({
   battles,
+  hiddenHighScrutiny,
   partyMap,
   threshold,
 }: {
   battles: LastSeatBattle[];
+  hiddenHighScrutiny: number;
   partyMap: ReadonlyMap<string, PartyMeta>;
   threshold: number;
 }) {
@@ -252,7 +281,9 @@ const BattleTable = memo(function BattleTable({
     return (
       <div className="empty-battle">
         <strong>
-          No hay provincias con aspirantes a menos de {formatNumber(provinceBattleThreshold, 1)} pp.
+          {hiddenHighScrutiny > 0
+            ? `Las ${hiddenHighScrutiny} provincias con aspirantes superan el 98% escrutado.`
+            : `No hay provincias con aspirantes a menos de ${formatNumber(provinceBattleThreshold, 1)} pp.`}
         </strong>
       </div>
     );
@@ -309,11 +340,17 @@ const BattleTable = memo(function BattleTable({
                 })}
               </div>
               <div className="battle-holder">
-                <div className="battle-holder-main">
-                  <i style={{ backgroundColor: holder?.color ?? "#64748b" }} />
-                  <strong>{holder?.label ?? battle.holderPartyId}</strong>
-                </div>
-                {battle.penultimate ? (
+                {battle.dataAvailable === false ? (
+                  <div className="battle-holder-main">
+                    <strong>—</strong>
+                  </div>
+                ) : (
+                  <div className="battle-holder-main">
+                    <i style={{ backgroundColor: holder?.color ?? "#64748b" }} />
+                    <strong>{holder?.label ?? battle.holderPartyId}</strong>
+                  </div>
+                )}
+                {battle.dataAvailable !== false && battle.penultimate ? (
                   <div
                     className="battle-penultimate"
                     title={`${holder?.label ?? battle.holderPartyId} necesita ${formatNumber(battle.penultimate.contender.votesNeeded)} votos para alcanzar el penúltimo escaño`}

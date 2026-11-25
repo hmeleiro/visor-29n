@@ -207,7 +207,10 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
     "/api/last-seat/frames",
     async (request): Promise<LastSeatFrame[]> => {
       const envios = parseLastSeatFrameEnvios(request.query.envios);
-      const frames = await repository.getLastSeatFrames(envios);
+      // Keep provinces with scrutiny data even when they do not yet have a
+      // contender inside the threshold. The client needs to distinguish those
+      // from provinces that had no usable data in an earlier frame.
+      const frames = await repository.getLastSeatFrames(envios, true);
       if (frames.length !== envios.length) {
         throw new RequestError("Algún envío solicitado no está disponible o está incompleto");
       }
